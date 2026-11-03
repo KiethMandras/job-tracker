@@ -2,7 +2,7 @@ import argparse
 import os
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 from dotenv import load_dotenv
 from notion_client import Client
@@ -18,6 +18,8 @@ if not TOKEN or not DATABASE_ID:
 notion = Client(auth=TOKEN, notion_version="2022-06-28")
 
 STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected"]
+OPEN_STATUSES = ["Applied", "Screening", "Interview"]
+DEFAULT_FOLLOW_UP_DAYS = 7
 
 
 def plain(prop, key):
@@ -25,35 +27,73 @@ def plain(prop, key):
     return "".join(piece["plain_text"] for piece in prop.get(key, []))
 
 
+def iso_date(text):
+    """argparse type: accept dates written as YYYY-MM-DD only."""
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise argparse.ArgumentTypeError("use the format YYYY-MM-DD")
+
+
 def query_database(body=None):
-    """Query the database and return the list of result pages."""
-    result = notion.request(
-        path=f"databases/{DATABASE_ID}/query", method="POST", body=body or {}
-    )
-    return result["results"]
+    """Return every page matching the query, following pagination."""
+    body = dict(body or {})
+    pages = []
+    while True:
+        result = notion.request(
+            path=f"databases/{DATABASE_ID}/query",
+            method="POST",
+            body=body,
+        )
+        pages.extend(result["results"])
+        if not result.get("has_more"):
+            return pages
+        body["start_cursor"] = result["next_cursor"]
 
 
-def add_job(company, position, status, source, link):
+def describe(page):
+    """One-line summary: company | position | status."""
+    p = page["properties"]
+    company = plain(p["Company"], "title") or "(no name)"
+    position = plain(p["Position"], "rich_text")
+    status = (p["Status"]["select"] or {}).get("name", "-")
+    return f"{company} | {position} | {status}"
+
+
+def add_job(company, position, status, source, link, notes, follow_up):
+    if not follow_up:
+        days = timedelta(days=DEFAULT_FOLLOW_UP_DAYS)
+        follow_up = (date.today() + days).isoformat()
+
     props = {
         "Company": {"title": [{"text": {"content": company}}]},
         "Position": {"rich_text": [{"text": {"content": position}}]},
         "Status": {"select": {"name": status}},
         "Date Applied": {"date": {"start": date.today().isoformat()}},
+        "Follow-up Date": {"date": {"start": follow_up}},
     }
     if source:
         props["Source"] = {"select": {"name": source}}
     if link:
         props["Link"] = {"url": link}
+    if notes:
+        props["Notes"] = {"rich_text": [{"text": {"content": notes}}]}
 
-    page = notion.pages.create(parent={"database_id": DATABASE_ID}, properties=props)
+    page = notion.pages.create(
+        parent={"database_id": DATABASE_ID}, properties=props
+    )
     print(f"Added: {company} - {position}")
+    print(f"Follow-up date: {follow_up}")
     print(f"Page ID: {page['id']}")
 
 
 def list_jobs(status=None):
     body = {}
     if status:
-        body["filter"] = {"property": "Status", "select": {"equals": status}}
+        body["filter"] = {
+            "property": "Status",
+            "select": {"equals": status},
+        }
 
     pages = query_database(body)
 
@@ -62,11 +102,56 @@ def list_jobs(status=None):
         return
 
     for page in pages:
-        p = page["properties"]
-        company = plain(p["Company"], "title") or "(no name)"
-        position = plain(p["Position"], "rich_text")
-        current = (p["Status"]["select"] or {}).get("name", "-")
-        print(f"{company} | {position} | {current} | {page['id']}")
+        print(f"{describe(page)} | {page['id']}")
+
+
+def get_follow_up(props):
+    """Return the Follow-up Date as a date object, or None."""
+    value = (props["Follow-up Date"]["date"] or {}).get("start")
+    return date.fromisoformat(value[:10]) if value else None
+
+
+def reminders(stale_days):
+    today = date.today()
+    body = {
+        "filter": {
+            "or": [
+                {"property": "Status", "select": {"equals": s}}
+                for s in OPEN_STATUSES
+            ]
+        }
+    }
+
+    due = []
+    quiet = []
+    for page in query_database(body):
+        follow_up = get_follow_up(page["properties"])
+        last_edit = date.fromisoformat(page["last_edited_time"][:10])
+
+        if follow_up:
+            if follow_up <= today:
+                due.append((follow_up, page))
+        elif (today - last_edit).days >= stale_days:
+            quiet.append((last_edit, page))
+
+    if not due and not quiet:
+        print("Nothing to follow up on today.")
+        return
+
+    if due:
+        print("Follow-up due:")
+        for follow_up, page in sorted(due, key=lambda item: item[0]):
+            late = (today - follow_up).days
+            when = "due today" if late == 0 else f"{late} day(s) overdue"
+            print(f"  {describe(page)} | {when}")
+
+    if quiet:
+        if due:
+            print()
+        print(f"No activity for {stale_days}+ days (no follow-up date set):")
+        for last_edit, page in sorted(quiet, key=lambda item: item[0]):
+            idle = (today - last_edit).days
+            print(f"  {describe(page)} | idle {idle} day(s)")
 
 
 def looks_like_id(text):
@@ -99,9 +184,7 @@ def update_status(target, new_status):
         if len(matches) > 1:
             print(f"Multiple matches for '{target}'. Re-run with a page ID:")
             for page in matches:
-                p = page["properties"]
-                print(f"  {plain(p['Company'], 'title')} | "
-                      f"{plain(p['Position'], 'rich_text')} | {page['id']}")
+                print(f"  {describe(page)} | {page['id']}")
             sys.exit(1)
 
         page_id = matches[0]["id"]
@@ -123,21 +206,46 @@ def main():
     add.add_argument("--status", default="Applied", choices=STATUSES)
     add.add_argument("--source")
     add.add_argument("--link")
+    add.add_argument("--notes")
+    add.add_argument(
+        "--follow-up",
+        dest="follow_up",
+        type=iso_date,
+        help="Follow-up date as YYYY-MM-DD (default: 7 days from today)",
+    )
 
     ls = sub.add_parser("list", help="List applications")
     ls.add_argument("--status", choices=STATUSES)
 
+    rem = sub.add_parser("reminders", help="Show applications to follow up")
+    rem.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Days of inactivity before a row counts as quiet (default: 7)",
+    )
+
     upd = sub.add_parser("update", help="Update an application's status")
-    upd.add_argument("target", help="Company name or page ID") 
+    upd.add_argument("target", help="Company name or page ID")
     upd.add_argument("status", choices=STATUSES)
 
     args = parser.parse_args()
 
     try:
         if args.command == "add":
-            add_job(args.company, args.position, args.status, args.source, args.link)
+            add_job(
+                args.company,
+                args.position,
+                args.status,
+                args.source,
+                args.link,
+                args.notes,
+                args.follow_up,
+            )
         elif args.command == "list":
             list_jobs(args.status)
+        elif args.command == "reminders":
+            reminders(args.days)
         elif args.command == "update":
             update_status(args.target, args.status)
     except APIResponseError as err:
@@ -145,4 +253,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

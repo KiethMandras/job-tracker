@@ -34,3 +34,6 @@ python tracker.py update "Acme Corp" Interview
 
 ## Tech
 Python, Notion API, notion-client, python-dotenv, argparse
+
+python tracker.py add "Acme Corp" "IT Support" --source Jobstreet --notes "Referred by a friend" --follow-up 2026-11-10
+python tracker.py reminders
