@@ -5,12 +5,15 @@ hatching. To use your own original illustrations, put them in the assets
 folder (see assets/README.txt).
 """
 import base64
+import calendar
 import html
 import math
 import os
 import random
+from datetime import date
 from functools import lru_cache
 
+import local_store
 import notion_store as ns
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +30,7 @@ QUOTES = [
     "Every closed door is just the turn of a page, not the end of the story.",
     "Quiet persistence fills the empty panels.",
     "The next chapter starts with one more application.",
-    "676767676767.",
+    "Even the longest night leaves room for a bright panel.",
     "Small steps, drawn carefully, make the whole story.",
 ]
 
@@ -121,9 +124,100 @@ div.mj-h4{margin:0;font-size:1rem;font-weight:800;}
 .mj-late{color:#8a3737;font-weight:700;white-space:nowrap;}
 .mj-ontime{font-weight:700;white-space:nowrap;}
 [data-testid="stTabs"] button[role="tab"]{font-weight:700;}
-@media (max-width:700px){div.mj-title{font-size:1.8rem;}.mj-banner-inner{flex-direction:column;}}
+.mj-wiz{margin:.1rem 0 1.1rem 0;}
+.mj-steps{display:flex;align-items:center;}
+.mj-step{display:flex;align-items:center;gap:.45rem;flex:0 0 auto;}
+.mj-dot{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--mj-ink);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;background:#fff;color:var(--mj-ink);}
+.mj-dot .mj-icon{margin:0;}
+.mj-step-done .mj-dot{background:var(--mj-ink);}
+.mj-step-current .mj-dot{background:var(--mj-ink);color:#fff;box-shadow:0 0 0 3px rgba(23,23,23,.18);}
+.mj-step-todo .mj-dot{border-color:#bdbdbd;color:#9a9a9a;}
+.mj-step-label{font-size:.85rem;font-weight:700;}
+.mj-step-todo .mj-step-label{color:#9a9a9a;font-weight:500;}
+.mj-conn{flex:1 1 auto;height:2px;background:#d9d9d9;margin:0 .6rem;min-width:12px;}
+.mj-conn-done{background:var(--mj-ink);}
+.mj-wiz-track{height:4px;background:var(--mj-line);margin-top:.8rem;}
+.mj-wiz-fill{height:4px;background:var(--mj-ink);transition:width .25s ease;}
+.mj-wiz-cap{font-size:.8rem;color:var(--mj-muted);margin-top:.4rem;}
+.mj-review{border:1px solid var(--mj-line);background:var(--mj-soft);padding:.8rem 1rem;margin-bottom:.6rem;}
+.mj-cal{border:1px solid var(--mj-ink);border-radius:2px;background:#fff;overflow-x:auto;margin-bottom:1rem;}
+.mj-cal-grid{display:grid;grid-template-columns:repeat(7,minmax(108px,1fr));min-width:780px;}
+.mj-cal-dow{padding:.45rem .6rem;font-size:.78rem;font-weight:800;background:var(--mj-soft);border-bottom:1px solid var(--mj-ink);}
+.mj-cal-day{min-height:98px;padding:.3rem .35rem;border-right:1px solid var(--mj-line);border-bottom:1px solid var(--mj-line);overflow:hidden;}
+.mj-cal-day:nth-child(7n){border-right:none;}
+.mj-cal-out{background:var(--mj-soft);opacity:.6;}
+.mj-cal-num{font-size:.78rem;font-weight:700;margin-bottom:.15rem;}
+.mj-cal-today .mj-cal-num{display:inline-block;background:var(--mj-ink);color:#fff;border-radius:10px;padding:0 .45rem;}
+.mj-ev{display:block;font-size:.72rem;line-height:1.3;padding:.08rem .3rem;margin-top:.15rem;border-left:3px solid;border-radius:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mj-ev-interview{background:#171717;color:#fff;border-color:#171717;}
+.mj-ev-assessment{background:#e1ece4;color:#365f45;border-color:#365f45;}
+.mj-ev-deadline{background:#f3dede;color:#8a3737;border-color:#8a3737;}
+.mj-ev-followup{background:#f6ecd2;color:#7d5a12;border-color:#7d5a12;}
+.mj-ev-task{background:#efefef;color:#555;border-color:#999;}
+.mj-more{font-size:.72rem;color:var(--mj-muted);margin-top:.15rem;}
+.mj-legend{display:flex;flex-wrap:wrap;gap:.5rem;margin:.3rem 0 .8rem 0;}
+.mj-legend .mj-ev{margin:0;padding:.15rem .5rem;}
+.mj-bars{border:1px solid var(--mj-ink);border-radius:2px;background:#fff;padding:.8rem 1rem;margin-bottom:1rem;}
+.mj-bars-title{font-weight:800;margin-bottom:.5rem;}
+.mj-bar-row{display:flex;align-items:center;gap:.7rem;margin:.35rem 0;font-size:.85rem;}
+.mj-bar-label{flex:0 0 130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mj-bar-track{flex:1 1 auto;height:12px;background:var(--mj-soft);border:1px solid var(--mj-line);}
+.mj-bar-fill{height:100%;background:var(--mj-ink);}
+.mj-bar-val{flex:0 0 auto;min-width:5.5rem;text-align:right;font-weight:700;}
+.mj-goal{border:1px solid var(--mj-ink);border-radius:2px;background:#fff;padding:.7rem 1rem;margin-bottom:1.1rem;}
+.mj-goal-top{display:flex;justify-content:space-between;gap:1rem;font-size:.9rem;font-weight:700;margin-bottom:.45rem;}
+.mj-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-bottom:.8rem;}
+.mj-link{border:1px solid var(--mj-ink);border-radius:2px;background:#fff;padding:.55rem .7rem;}
+.mj-link b{display:block;font-size:.88rem;}
+.mj-link span{display:block;font-size:.76rem;color:var(--mj-muted);margin-top:.2rem;word-break:break-all;}
+.mj-link a{display:block;font-size:.8rem;color:var(--mj-ink);text-decoration:underline;margin-top:.2rem;}
+@media (max-width:700px){.mj-step-label{display:none;}.mj-step-current .mj-step-label{display:inline;}div.mj-title{font-size:1.8rem;}.mj-banner-inner{flex-direction:column;}}
 </style>
 """
+
+DARK_CSS = """
+<style>
+:root{--mj-ink:#ECECEC;--mj-accent:#D4D4D4;--mj-muted:#A3A3A3;--mj-line:#363636;--mj-soft:#222222;}
+.stApp,[data-testid="stAppViewContainer"],[data-testid="stHeader"]{background-color:#121212;color:#ECECEC;}
+[data-testid="stSidebar"],[data-testid="stSidebar"]>div{background-color:#1A1A1A;}
+.stApp p,.stApp label,.stApp h1,.stApp h2,.stApp h3,.stApp h4,.stApp li,[data-testid="stWidgetLabel"] p{color:#ECECEC;}
+[data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p{color:#A3A3A3;}
+[data-baseweb="input"],[data-baseweb="input"] input,[data-baseweb="textarea"],[data-baseweb="textarea"] textarea,
+[data-baseweb="select"]>div,[data-baseweb="base-input"]{background-color:#1E1E1E;color:#ECECEC;}
+[data-baseweb="popover"],[data-baseweb="popover"]>div,[data-baseweb="menu"],ul[role="listbox"],
+[data-baseweb="calendar"]{background-color:#1E1E1E;color:#ECECEC;}
+li[role="option"]{color:#ECECEC;}
+.stButton>button,.stFormSubmitButton>button{background-color:#1E1E1E;color:#ECECEC;border:1px solid #555;}
+.stButton>button[kind="primary"],.stFormSubmitButton>button[kind="primary"]{background-color:#ECECEC;color:#121212;}
+div[role="dialog"]{background-color:#161616;}
+[data-testid="stExpander"] details{border-color:#363636;}
+.mj-stat,.mj-scroll,.mj-card,.mj-panel,.mj-iv,.mj-remind,.mj-count,.mj-dot,.mj-cal,.mj-bars,.mj-goal,.mj-link{background:#181818;}
+.mj-cal-today .mj-cal-num{background:#ECECEC;color:#121212;}
+.mj-ev-interview{background:#ECECEC;color:#121212;border-color:#ECECEC;}
+.mj-ev-assessment{background:#1d3326;color:#8fd0a4;border-color:#8fd0a4;}
+.mj-ev-deadline{background:#3d2222;color:#e59a9a;border-color:#e59a9a;}
+.mj-ev-followup{background:#3a3117;color:#e6c670;border-color:#e6c670;}
+.mj-ev-task{background:#2b2b2b;color:#cfcfcf;border-color:#777;}
+.mj-col,.mj-review{background:#1E1E1E;}
+.mj-stat .mj-icon,.mj-step-done .mj-icon{filter:invert(1);}
+.mj-stat::after{background-image:radial-gradient(rgba(255,255,255,.16) 1.2px,transparent 1.7px);}
+.mj-col-head{background-image:radial-gradient(rgba(255,255,255,.1) 1px,transparent 1.5px);}
+.mj-step-done .mj-dot{background:#ECECEC;}
+.mj-step-current .mj-dot{background:#ECECEC;color:#121212;}
+.mj-step-todo .mj-dot{border-color:#555;color:#888;}
+.mj-conn{background:#444;}
+ol.mj-timeline li::before{background:#181818;}
+.mj-late{color:#e59a9a;}
+.mj-pill-grey{background:#2b2b2b;color:#cfcfcf;border-color:#444;}
+.mj-pill-amber{background:#3a3117;color:#e6c670;border-color:#5c4d22;}
+.mj-pill-green{background:#1d3326;color:#8fd0a4;border-color:#2f5640;}
+.mj-pill-red{background:#3d2222;color:#e59a9a;border-color:#5e3434;}
+</style>
+"""
+
+
+def css(dark=False):
+    return CSS + (DARK_CSS if dark else "")
 
 
 def e(text):
@@ -163,6 +257,7 @@ ICONS = {
     "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     "calendar": '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>',
     "check": '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/>',
+    "tick": '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     "bell": '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
     "sliders": '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
 }
@@ -324,7 +419,7 @@ def stats_html(cards):
     for label, value, note, icon_name in cards:
         out.append(
             '<div class="mj-stat"><div class="mj-stat-top">%s</div>'
-            '<div class="mj-stat-value">%d</div><div class="mj-stat-label">%s</div>'
+            '<div class="mj-stat-value">%s</div><div class="mj-stat-label">%s</div>'
             '<div class="mj-stat-note">%s</div></div>' % (
                 icon(icon_name, "#292929", 24), value, e(label), e(note)))
     out.append('</div>')
@@ -464,4 +559,185 @@ def reminders_html(alerts, today):
             '<span class="%s">%s</span></div>' % (
                 e(rec["company"]), e(rec["position"]), e(kind),
                 "mj-late" if late else "mj-ontime", e(label)))
+    return "".join(out)
+
+
+def steps_html(labels, current):
+    """Wizard progress: numbered steps, a filled bar, and a 'Step n of N' line."""
+    out = ['<div class="mj-wiz"><div class="mj-steps">']
+    for i, label in enumerate(labels):
+        state = "done" if i < current else ("current" if i == current else "todo")
+        mark = icon("tick", "#ffffff", 14) if state == "done" else str(i + 1)
+        out.append('<div class="mj-step mj-step-%s"><span class="mj-dot">%s</span>'
+                   '<span class="mj-step-label">%s</span></div>' % (state, mark, e(label)))
+        if i < len(labels) - 1:
+            out.append('<span class="mj-conn%s"></span>' % (" mj-conn-done" if i < current else ""))
+    percent = int(round((current + 1) * 100.0 / len(labels)))
+    out.append('</div><div class="mj-wiz-track"><div class="mj-wiz-fill" style="width:%d%%"></div></div>'
+               '<div class="mj-wiz-cap">Step %d of %d: %s</div></div>' % (
+                   percent, current + 1, len(labels), e(labels[current])))
+    return "".join(out)
+
+
+def review_html(v):
+    def cell(label, value_html):
+        return "<div><small>%s</small>%s</div>" % (e(label), value_html or "-")
+
+    out = ['<div class="mj-review"><div class="mj-grid">',
+           cell("Company", e(v["company"])),
+           cell("Position", e(v["position"])),
+           cell("Status", pill(v["status"])),
+           cell("Source", e(v["source"])),
+           cell("Location", e(v["location"])),
+           cell("Employment type", e(v["emp_type"])),
+           cell("Salary", e(v["salary"])),
+           cell("Job posting", e(v["link"])),
+           cell("Date applied", fmt_date(v["date_applied"])),
+           cell("Deadline", fmt_date(v["deadline"])),
+           cell("Follow-up", fmt_date(v["follow_up"])),
+           "</div>"]
+    if v["notes"]:
+        out.append('<div class="mj-h3" role="heading" aria-level="3">Notes</div>'
+                   '<div class="mj-text">%s</div>' % e(v["notes"]))
+    out.append("</div>")
+    return "".join(out)
+
+
+# ------------------------------------------------- calendar, charts, lists
+
+KIND_CLASS = {"Interview": "interview", "Assessment": "assessment",
+              "Deadline": "deadline", "Follow-up": "followup", "Task": "task"}
+KIND_SHORT = {"Interview": "Int", "Assessment": "Test", "Deadline": "Due",
+              "Follow-up": "F/U", "Task": "Task"}
+
+
+def legend_html():
+    out = ['<div class="mj-legend">']
+    for kind in ("Interview", "Assessment", "Deadline", "Follow-up", "Task"):
+        out.append('<span class="mj-ev mj-ev-%s">%s = %s</span>' % (
+            KIND_CLASS[kind], KIND_SHORT[kind], kind))
+    out.append("</div>")
+    return "".join(out)
+
+
+def calendar_html(year, month, events, today):
+    by_day = {}
+    for ev in events:
+        by_day.setdefault(ev["day"], []).append(ev)
+    out = ['<div class="mj-cal"><div class="mj-cal-grid">']
+    for name in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
+        out.append('<div class="mj-cal-dow">%s</div>' % name)
+    for week in calendar.Calendar(0).monthdatescalendar(year, month):
+        for day in week:
+            classes = "mj-cal-day"
+            if day.month != month:
+                classes += " mj-cal-out"
+            if day == today:
+                classes += " mj-cal-today"
+            out.append('<div class="%s"><div class="mj-cal-num">%d</div>' % (classes, day.day))
+            items = by_day.get(day, [])
+            for ev in items[:3]:
+                tip = "%s: %s%s" % (ev["kind"], ev["title"],
+                                    (" - " + ev["detail"]) if ev["detail"] else "")
+                out.append('<span class="mj-ev mj-ev-%s" title="%s">%s | %s</span>' % (
+                    KIND_CLASS[ev["kind"]], e(tip), KIND_SHORT[ev["kind"]], e(ev["title"])))
+            if len(items) > 3:
+                out.append('<div class="mj-more">+%d more</div>' % (len(items) - 3))
+            out.append("</div>")
+    out.append("</div></div>")
+    return "".join(out)
+
+
+def events_list_html(events, year, month, today):
+    rows = [ev for ev in events if ev["day"].year == year and ev["day"].month == month]
+    if not rows:
+        return '<div class="mj-scroll"><div class="mj-empty">Nothing is scheduled this month.</div></div>'
+    out = []
+    for ev in rows:
+        label, _late = relative(ev["day"], today)
+        when = ev["day"].strftime("%a, %b %d")
+        when += " (%s)" % label if ev["day"] >= today else " (past)"
+        detail = ev["detail"]
+        out.append(
+            '<div class="mj-remind"><div><b>%s</b>%s<div class="mj-kind">%s</div></div>'
+            '<span class="mj-ontime">%s</span></div>' % (
+                e(ev["title"]), (" - " + e(detail)) if detail else "", e(ev["kind"]), e(when)))
+    return "".join(out)
+
+
+def bars_html(title, rows, max_value=None, empty="Nothing to show yet."):
+    """Horizontal bars. rows = [(label, value, text)]."""
+    out = ['<div class="mj-bars"><div class="mj-bars-title">%s</div>' % e(title)]
+    if not rows:
+        out.append('<div class="mj-muted">%s</div>' % e(empty))
+    else:
+        top = max_value or max(value for _label, value, _text in rows) or 1
+        for label, value, text in rows:
+            width = max(0, min(100, int(round(100.0 * value / top))))
+            out.append(
+                '<div class="mj-bar-row"><span class="mj-bar-label" title="%s">%s</span>'
+                '<div class="mj-bar-track"><div class="mj-bar-fill" style="width:%d%%"></div></div>'
+                '<span class="mj-bar-val">%s</span></div>' % (e(label), e(label), width, e(text)))
+    out.append("</div>")
+    return "".join(out)
+
+
+def goal_html(done, target):
+    if target <= 0:
+        return ""
+    percent = min(100, int(round(100.0 * done / target)))
+    note = " - goal reached" if done >= target else ""
+    return (
+        '<div class="mj-goal"><div class="mj-goal-top"><span>Weekly goal</span>'
+        '<span>%d of %d applications this week%s</span></div>'
+        '<div class="mj-bar-track"><div class="mj-bar-fill" style="width:%d%%"></div></div></div>'
+    ) % (done, target, note, percent)
+
+
+def _ago(day, today):
+    delta = (today - day).days
+    if delta == 0:
+        return "today"
+    if delta == 1:
+        return "yesterday"
+    if delta > 1:
+        return "%d days ago" % delta
+    return "in %d days" % -delta
+
+
+def contacts_html(contacts, today):
+    if not contacts:
+        return '<div class="mj-scroll"><div class="mj-empty">No contacts yet. Add a recruiter or someone you have spoken to.</div></div>'
+
+    def sort_key(c):
+        day = local_store.parse_day(c.get("last_contacted"))
+        return (day is not None, day or date.min, c.get("name", "").lower())
+
+    head = ["Name", "Role", "Company", "Email", "Phone", "Last contacted", "Notes"]
+    out = ['<div class="mj-scroll"><table class="mj-table"><tr>']
+    out.extend("<th>%s</th>" % h for h in head)
+    out.append("</tr>")
+    for c in sorted(contacts, key=sort_key):
+        day = local_store.parse_day(c.get("last_contacted"))
+        last = "%s (%s)" % (fmt_date(day), _ago(day, today)) if day else "Never"
+        email = c.get("email", "")
+        email_html = '<a href="mailto:%s">%s</a>' % (e(email), e(email)) if email else "-"
+        out.append(
+            '<tr><td class="mj-company">%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>'
+            '<td class="mj-nw">%s</td><td class="mj-muted">%s</td></tr>' % (
+                e(c.get("name", "")), e(c.get("role") or "-"), e(c.get("company") or "-"),
+                email_html, e(c.get("phone") or "-"), e(last), e(c.get("notes") or "")))
+    out.append("</table></div>")
+    return "".join(out)
+
+
+def links_html(links):
+    if not links:
+        return '<div class="mj-muted" style="font-size:.85rem">No shortcuts yet.</div>'
+    out = ['<div class="mj-links">']
+    for item in links:
+        target = item.get("url", "")
+        body = link_html(target, "Open") if safe_url(target) else "<span>%s</span>" % e(target)
+        out.append('<div class="mj-link"><b>%s</b>%s</div>' % (e(item.get("label", "")), body))
+    out.append("</div>")
     return "".join(out)

@@ -4,6 +4,7 @@ Two backends share one interface:
   NotionBackend  talks to your Notion database
   DemoBackend    keeps sample data in memory (set DASHBOARD_DEMO=1)
 """
+import re
 from datetime import date, datetime, timedelta
 
 TIMEZONE = "Asia/Manila"
@@ -46,6 +47,24 @@ INTERVIEW_STATUSES = ("Interview Scheduled", "Final Interview")
 
 EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Contract", "Internship", "Temporary"]
 INTERVIEW_TYPES = ["Online", "In-person"]
+
+# Salary dropdown: PHP 10,000 to 200,000 a month, in steps of 5,000.
+SALARY_STEPS = list(range(10000, 200001, 5000))
+
+
+def parse_salary(text):
+    """Pull (minimum, maximum) numbers out of a saved salary string."""
+    nums = [int(n.replace(",", "")) for n in re.findall(r"\d[\d,]*", text or "")]
+    return (nums[0] if nums else None, nums[1] if len(nums) > 1 else None)
+
+
+def format_salary(low, high):
+    if low and high:
+        return "PHP {:,} - {:,}".format(low, high)
+    if low or high:
+        return "PHP {:,}".format(low or high)
+    return ""
+
 
 # (Notion property name, record key, kind)
 FIELDS = [
